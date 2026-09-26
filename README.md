@@ -104,4 +104,10 @@ autofish/
 
 生产凭证只放在部署主机的 `.env`，不写入代码或 Git。页面默认只展示脱敏的供应商标识。所有影响商品、资金边界、自动化状态和发布队列的动作都会写入 `audit_logs`。
 
+## 开源许可证
+
+AutoFish 原创代码与文档采用 [MIT License](LICENSE)。第三方代码、配置和依赖保留各自许可证，详见 [第三方声明](THIRD_PARTY_NOTICES.md)；其中 Playwright seccomp 配置按 Apache-2.0 分发。
+
+开源许可不授予闲鱼、1688 或大模型服务的账号、API、数据和商标使用权限。部署者仍需自行取得必要的平台授权，并遵守相应服务条款。公开源码不表示无人值守运行已通过完整验收，当前能力与待验证项见本文顶部说明。
+
 详细说明见 [商业化可行性诊断](./docs/AutoFish_商业化可行性诊断与升级方案_20260819.md)、[商业交付标准](./docs/COMMERCIAL_DELIVERY.md)、[真实端到端提交闲鱼验收](./docs/REAL_END_TO_END_PUBLICATION_ACCEPTANCE_20260818.md)、[自主上架产品化验收](./docs/AUTONOMOUS_LAUNCH_ACCEPTANCE_20260817.md)、[大模型设置](./docs/AI_MODEL_SETTINGS.md)、[运营方法与大模型路由评估](./docs/OPERATIONS_METHODS_AND_LLM_ROUTING_20260817.md)、[全面自动化交付总结](./docs/AUTOMATION_PRODUCTIZATION_SUMMARY.md)、[架构](./docs/ARCHITECTURE.md)、[数据库](./docs/DATABASE.md)、[Adapter](./docs/ADAPTERS.md)、[八大能力整合](./docs/CLAWHUB_EIGHT_CAPABILITIES.md)、[1688 社区技能评估](./docs/1688_COMMUNITY_SKILLS.md)、[1688 候选人工核验](./docs/SUPPLIER_MANUAL_VERIFICATION.md)、[产品化运行](./docs/PRODUCTIZATION.md)、[Gateway 契约](./docs/INTEGRATION_GATEWAY.md)、[真实数据验证](./docs/REAL_DATA_VALIDATION.md)、[安全](./docs/SECURITY.md)、[合规](./docs/COMPLIANCE.md)、[NAS 部署](./docs/DEPLOYMENT.md)、[验收记录](./docs/QA_ACCEPTANCE.md)、[参考仓库分析](./docs/REFERENCE_ANALYSIS.md) 与 [路线图](./docs/ROADMAP.md)。

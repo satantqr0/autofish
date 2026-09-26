@@ -51,7 +51,7 @@
 	],
 	"syscalls": [
 		{
-			"comment": "Allow create user namespaces",
+			"comment": "Allow create user namespaces. Derived from Microsoft Playwright v1.62.1 (Apache-2.0); modified by AutoFish to also allow chroot for the NAS Chromium sandbox. See THIRD_PARTY_NOTICES.md and LICENSES/Playwright-Apache-2.0.txt.",
 			"names": [
 				"chroot",
 				"clone",
