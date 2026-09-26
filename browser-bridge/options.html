@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AutoFish 浏览器桥接设置</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="options-page">
+    <main class="panel options-panel">
+      <span class="eyebrow">AUTOFISH · SELLER BRIDGE</span>
+      <h1>闲鱼工作台桥接设置</h1>
+      <p>令牌仅保存在本机 Chrome。扩展不会读取或上传 Cookie、密码、完整页面文本和买家隐私；最终发布能力由 NAS 双重开关控制。</p>
+      <label><span>AutoFish API 地址</span><input id="apiBase" placeholder="http://192.168.199.180:18181/api/v1" /></label>
+      <label><span>代理名称</span><input id="bridgeName" maxlength="120" placeholder="本机 Chrome" /></label>
+      <label><span>代理 ID</span><input id="bridgeId" maxlength="80" /></label>
+      <label><span>浏览器桥接令牌</span><input id="bridgeToken" type="password" autocomplete="off" /></label>
+      <div class="notice">生产环境建议为 NAS 配置 HTTPS；当前局域网 HTTP 模式下，不要在公共网络使用。</div>
+      <div class="actions"><button id="save" type="button">保存并测试连接</button></div>
+      <output id="status" aria-live="polite"></output>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

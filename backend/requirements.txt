@@ -1,0 +1,17 @@
+fastapi>=0.116,<1
+uvicorn[standard]>=0.35,<1
+SQLAlchemy>=2.0.43,<3
+# SQLAlchemy requires greenlet on Linux x86_64/aarch64.  Keep it explicit so
+# locks generated on macOS still contain hashes for the Docker runtime.
+greenlet>=3,<4
+psycopg[binary]>=3.2.9,<4
+alembic>=1.16,<2
+pydantic-settings>=2.10,<3
+PyJWT>=2.10,<3
+redis>=6,<7
+celery>=5.5,<6
+cryptography>=50,<51
+httpx>=0.28,<1
+Pillow>=11,<13
+openpyxl>=3.1.5,<4
+requests>=2.32,<3

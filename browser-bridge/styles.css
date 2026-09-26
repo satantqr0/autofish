@@ -1,0 +1,21 @@
+:root { color-scheme: light; font-family: Inter, "PingFang SC", sans-serif; }
+* { box-sizing: border-box; }
+body { background: #f4f7f7; color: #153438; margin: 0; }
+.options-page { min-height: 100vh; padding: 32px; }
+.popup-page { min-width: 330px; padding: 12px; }
+.panel { background: white; border: 1px solid #dbe6e5; border-radius: 16px; box-shadow: 0 14px 40px rgba(23, 66, 70, .1); }
+.options-panel { margin: 0 auto; max-width: 620px; padding: 28px; }
+.popup-panel { padding: 18px; }
+.eyebrow { color: #087f7b; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }
+h1 { font-size: 22px; margin: 7px 0 10px; }
+p { color: #60777a; font-size: 13px; line-height: 1.6; }
+label { display: grid; gap: 6px; margin-top: 15px; }
+label span { font-size: 12px; font-weight: 700; }
+input { border: 1px solid #cbd9d8; border-radius: 9px; font: inherit; padding: 10px 12px; width: 100%; }
+button { background: #087f7b; border: 0; border-radius: 9px; color: white; cursor: pointer; font: inherit; font-weight: 700; margin-top: 10px; padding: 10px 14px; width: 100%; }
+button.secondary { background: #eaf4f3; color: #176763; }
+button.link { background: transparent; color: #60777a; font-size: 12px; margin-top: 3px; }
+.notice { background: #fff7e8; border-left: 3px solid #d99a27; color: #715619; font-size: 12px; line-height: 1.55; margin-top: 18px; padding: 10px 12px; }
+.actions { display: flex; justify-content: flex-end; }
+.actions button { width: auto; }
+output { color: #176763; display: block; font-size: 13px; margin-top: 12px; }

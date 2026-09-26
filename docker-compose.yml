@@ -1,0 +1,392 @@
+name: autofish
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  market-collector:
+    # Experimental only: Goofish rejected NAS Chromium. Never start automatically.
+    profiles: [experimental-market]
+    build: ./market-collector
+    image: autofish-market-collector:local
+    restart: unless-stopped
+    init: true
+    cpus: 1.5
+    mem_limit: 2g
+    pids_limit: 256
+    shm_size: 512m
+    environment:
+      MARKET_COLLECTOR_TOKEN: ${AUTOFISH_MARKET_COLLECTOR_TOKEN:-}
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./market-collector/seccomp_profile.json
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [autofish-market]
+    logging: *default-logging
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 160
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autofish}
+      POSTGRES_USER: ${POSTGRES_USER:-autofish}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autofish} -d ${POSTGRES_DB:-autofish}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [autofish-internal]
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 512m
+    pids_limit: 100
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [autofish-internal]
+    logging: *default-logging
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 512m
+    pids_limit: 100
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-autofish}
+      PGUSER: ${POSTGRES_USER:-autofish}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      BACKUP_INTERVAL_SECONDS: ${AUTOFISH_BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${AUTOFISH_BACKUP_RETENTION_DAYS:-14}
+      BACKUP_MAX_AGE_MINUTES: ${AUTOFISH_BACKUP_MAX_AGE_MINUTES:-1560}
+    command:
+      - sh
+      - -ec
+      - |
+        umask 077
+        while true; do
+          stamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          target="/backups/autofish-$${stamp}.dump"
+          temporary="/backups/.autofish-$${stamp}.dump.tmp"
+          checksum="$${target}.sha256"
+          checksum_temporary="$${checksum}.tmp"
+          rm -f "$$temporary" "$$checksum_temporary"
+          pg_dump --format=custom --no-owner --no-acl --file="$$temporary"
+          test -s "$$temporary"
+          pg_restore --list "$$temporary" >/dev/null
+          digest="$$(sha256sum "$$temporary" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "$$digest" "$$(basename "$$target")" >"$$checksum_temporary"
+          chmod 0600 "$$temporary" "$$checksum_temporary"
+          mv "$$checksum_temporary" "$$checksum"
+          mv "$$temporary" "$$target"
+          find /backups -type f -name 'autofish-*.dump' -mtime "+$${BACKUP_RETENTION_DAYS}" -delete
+          find /backups -type f -name 'autofish-*.dump.sha256' -mtime "+$${BACKUP_RETENTION_DAYS}" -delete
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+        done
+    volumes:
+      - ./backups:/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "latest=$$(find /backups -type f -name 'autofish-*.dump' -mmin -$${BACKUP_MAX_AGE_MINUTES} -size +0c -print | sort | tail -1); test -n \"$$latest\" && pg_restore --list \"$$latest\" >/dev/null && cd /backups && sha256sum -c \"$$(basename \"$$latest\").sha256\" >/dev/null"]
+      interval: 30m
+      timeout: 30s
+      retries: 3
+      start_period: 2m
+    networks: [autofish-internal]
+    logging: *default-logging
+
+  backend:
+    image: autofish-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    init: true
+    cpus: 1.5
+    mem_limit: 1g
+    pids_limit: 220
+    environment:
+      AUTOFISH_ENVIRONMENT: production
+      AUTOFISH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-autofish}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autofish}
+      AUTOFISH_DATABASE_POOL_SIZE: ${AUTOFISH_DATABASE_POOL_SIZE:-10}
+      AUTOFISH_DATABASE_MAX_OVERFLOW: ${AUTOFISH_DATABASE_MAX_OVERFLOW:-10}
+      AUTOFISH_DATABASE_POOL_TIMEOUT_SECONDS: ${AUTOFISH_DATABASE_POOL_TIMEOUT_SECONDS:-30}
+      AUTOFISH_DATABASE_POOL_RECYCLE_SECONDS: ${AUTOFISH_DATABASE_POOL_RECYCLE_SECONDS:-1800}
+      AUTOFISH_DATABASE_STATEMENT_TIMEOUT_MS: ${AUTOFISH_DATABASE_STATEMENT_TIMEOUT_MS:-120000}
+      AUTOFISH_DATABASE_LOCK_TIMEOUT_MS: ${AUTOFISH_DATABASE_LOCK_TIMEOUT_MS:-5000}
+      AUTOFISH_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS: ${AUTOFISH_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS:-1020000}
+      AUTOFISH_REDIS_URL: redis://redis:6379/0
+      AUTOFISH_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AUTOFISH_CREDENTIAL_ENCRYPTION_SECRET: ${AUTOFISH_CREDENTIAL_ENCRYPTION_SECRET:-}
+      AUTOFISH_ADMIN_USERNAME: ${AUTOFISH_ADMIN_USERNAME:-admin}
+      AUTOFISH_ADMIN_PASSWORD: ${AUTOFISH_ADMIN_PASSWORD:?AUTOFISH_ADMIN_PASSWORD is required}
+      AUTOFISH_CORS_ORIGINS: ${AUTOFISH_CORS_ORIGINS:-http://localhost:18180}
+      AUTOFISH_SEED_DEMO: ${AUTOFISH_SEED_DEMO:-false}
+      AUTOFISH_LOG_LEVEL: ${AUTOFISH_LOG_LEVEL:-INFO}
+      AUTOFISH_ADAPTERS_ENABLED: ${AUTOFISH_ADAPTERS_ENABLED:-false}
+      AUTOFISH_ADAPTER_WRITE_ENABLED: ${AUTOFISH_ADAPTER_WRITE_ENABLED:-false}
+      AUTOFISH_SUPPLIER_ADAPTER: ${AUTOFISH_SUPPLIER_ADAPTER:-disabled}
+      AUTOFISH_SUPPLIER_GATEWAY_URL: ${AUTOFISH_SUPPLIER_GATEWAY_URL:-}
+      AUTOFISH_SUPPLIER_GATEWAY_TOKEN: ${AUTOFISH_SUPPLIER_GATEWAY_TOKEN:-}
+      AUTOFISH_SUPPLIER_ACCESS_KEY_FILE: ${AUTOFISH_SUPPLIER_ACCESS_KEY_FILE:-/run/autofish-credentials/1688-api-key}
+      AUTOFISH_SUPPLIER_CLI_COMMAND: ${AUTOFISH_SUPPLIER_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_SHOPKEEPER_CLI_COMMAND: ${AUTOFISH_SUPPLIER_SHOPKEEPER_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_PRODUCT_FIND_CLI_COMMAND: ${AUTOFISH_SUPPLIER_PRODUCT_FIND_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_CLI_TIMEOUT_SECONDS: ${AUTOFISH_SUPPLIER_CLI_TIMEOUT_SECONDS:-60}
+      OPENCLAW_WORKSPACE_DIR: /tmp/autofish-adapter-state
+      AUTOFISH_XIANYU_ADAPTER: ${AUTOFISH_XIANYU_ADAPTER:-disabled}
+      AUTOFISH_MARKET_COLLECTOR_URL: ${AUTOFISH_MARKET_COLLECTOR_URL:-}
+      AUTOFISH_MARKET_COLLECTOR_TOKEN: ${AUTOFISH_MARKET_COLLECTOR_TOKEN:-}
+      AUTOFISH_XIANYU_GATEWAY_URL: ${AUTOFISH_XIANYU_GATEWAY_URL:-}
+      AUTOFISH_XIANYU_GATEWAY_TOKEN: ${AUTOFISH_XIANYU_GATEWAY_TOKEN:-}
+      AUTOFISH_XIANYU_CLI_COMMAND: ${AUTOFISH_XIANYU_CLI_COMMAND:-}
+      AUTOFISH_XIANYU_COOKIE_PATH: ${AUTOFISH_XIANYU_COOKIE_PATH:-/run/autofish-credentials/goofish-cookies.json}
+      AUTOFISH_XIANYU_CLI_TIMEOUT_SECONDS: ${AUTOFISH_XIANYU_CLI_TIMEOUT_SECONDS:-60}
+      AUTOFISH_XIANYU_TOP_APP_KEY: ${AUTOFISH_XIANYU_TOP_APP_KEY:-}
+      AUTOFISH_XIANYU_TOP_APP_SECRET_FILE: ${AUTOFISH_XIANYU_TOP_APP_SECRET_FILE:-/run/autofish-credentials/xianyu-top-app-secret}
+      AUTOFISH_XIANYU_TOP_SESSION_FILE: ${AUTOFISH_XIANYU_TOP_SESSION_FILE:-/run/autofish-credentials/xianyu-top-session}
+      AUTOFISH_XIANYU_TOP_ENDPOINT: ${AUTOFISH_XIANYU_TOP_ENDPOINT:-https://eco.taobao.com/router/rest}
+      AUTOFISH_XIANYU_WEBHOOK_TOKEN_FILE: ${AUTOFISH_XIANYU_WEBHOOK_TOKEN_FILE:-/run/autofish-credentials/xianyu-webhook-token}
+      AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE: ${AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE:-/run/autofish-credentials/xianyu-browser-bridge-token}
+      AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED: ${AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED:-false}
+      AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED: ${AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED:-false}
+      AUTOFISH_AUTOMATION_SCHEDULER_ENABLED: ${AUTOFISH_AUTOMATION_SCHEDULER_ENABLED:-false}
+      AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS:-120}
+      AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS:-180}
+      AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS:-900}
+      AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS:-300}
+      AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE: ${AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE:-50}
+      AUTOFISH_ASSET_ROOT: ${AUTOFISH_ASSET_ROOT:-/app/assets}
+    command:
+      - sh
+      - -ec
+      - |
+        python -c 'from app.core.config import get_settings; get_settings().assert_production_safe()'
+        alembic upgrade head
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./logs:/app/logs
+      - ./assets:/app/assets
+      - ./credentials:/run/autofish-credentials:ro
+      - ./adapter-runtime:/opt/autofish-adapters:ro
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "18181:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [autofish-internal, autofish-market]
+    logging: *default-logging
+
+  worker:
+    image: autofish-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    init: true
+    cpus: 2.0
+    mem_limit: 2g
+    pids_limit: 320
+    environment:
+      AUTOFISH_ENVIRONMENT: production
+      AUTOFISH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-autofish}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autofish}
+      AUTOFISH_DATABASE_POOL_SIZE: ${AUTOFISH_DATABASE_POOL_SIZE:-10}
+      AUTOFISH_DATABASE_MAX_OVERFLOW: ${AUTOFISH_DATABASE_MAX_OVERFLOW:-10}
+      AUTOFISH_DATABASE_POOL_TIMEOUT_SECONDS: ${AUTOFISH_DATABASE_POOL_TIMEOUT_SECONDS:-30}
+      AUTOFISH_DATABASE_POOL_RECYCLE_SECONDS: ${AUTOFISH_DATABASE_POOL_RECYCLE_SECONDS:-1800}
+      AUTOFISH_DATABASE_STATEMENT_TIMEOUT_MS: ${AUTOFISH_DATABASE_STATEMENT_TIMEOUT_MS:-120000}
+      AUTOFISH_DATABASE_LOCK_TIMEOUT_MS: ${AUTOFISH_DATABASE_LOCK_TIMEOUT_MS:-5000}
+      AUTOFISH_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS: ${AUTOFISH_DATABASE_IDLE_TRANSACTION_TIMEOUT_MS:-1020000}
+      AUTOFISH_REDIS_URL: redis://redis:6379/0
+      AUTOFISH_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AUTOFISH_CREDENTIAL_ENCRYPTION_SECRET: ${AUTOFISH_CREDENTIAL_ENCRYPTION_SECRET:-}
+      AUTOFISH_ADMIN_USERNAME: ${AUTOFISH_ADMIN_USERNAME:-admin}
+      AUTOFISH_ADMIN_PASSWORD: ${AUTOFISH_ADMIN_PASSWORD:?AUTOFISH_ADMIN_PASSWORD is required}
+      AUTOFISH_SEED_DEMO: ${AUTOFISH_SEED_DEMO:-false}
+      AUTOFISH_LOG_LEVEL: ${AUTOFISH_LOG_LEVEL:-INFO}
+      AUTOFISH_ADAPTERS_ENABLED: ${AUTOFISH_ADAPTERS_ENABLED:-false}
+      AUTOFISH_ADAPTER_WRITE_ENABLED: ${AUTOFISH_ADAPTER_WRITE_ENABLED:-false}
+      AUTOFISH_SUPPLIER_ADAPTER: ${AUTOFISH_SUPPLIER_ADAPTER:-disabled}
+      AUTOFISH_SUPPLIER_GATEWAY_URL: ${AUTOFISH_SUPPLIER_GATEWAY_URL:-}
+      AUTOFISH_SUPPLIER_GATEWAY_TOKEN: ${AUTOFISH_SUPPLIER_GATEWAY_TOKEN:-}
+      AUTOFISH_SUPPLIER_ACCESS_KEY_FILE: ${AUTOFISH_SUPPLIER_ACCESS_KEY_FILE:-/run/autofish-credentials/1688-api-key}
+      AUTOFISH_SUPPLIER_CLI_COMMAND: ${AUTOFISH_SUPPLIER_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_SHOPKEEPER_CLI_COMMAND: ${AUTOFISH_SUPPLIER_SHOPKEEPER_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_PRODUCT_FIND_CLI_COMMAND: ${AUTOFISH_SUPPLIER_PRODUCT_FIND_CLI_COMMAND:-}
+      AUTOFISH_SUPPLIER_CLI_TIMEOUT_SECONDS: ${AUTOFISH_SUPPLIER_CLI_TIMEOUT_SECONDS:-60}
+      OPENCLAW_WORKSPACE_DIR: /tmp/autofish-adapter-state
+      AUTOFISH_XIANYU_ADAPTER: ${AUTOFISH_XIANYU_ADAPTER:-disabled}
+      AUTOFISH_MARKET_COLLECTOR_URL: ${AUTOFISH_MARKET_COLLECTOR_URL:-}
+      AUTOFISH_MARKET_COLLECTOR_TOKEN: ${AUTOFISH_MARKET_COLLECTOR_TOKEN:-}
+      AUTOFISH_XIANYU_GATEWAY_URL: ${AUTOFISH_XIANYU_GATEWAY_URL:-}
+      AUTOFISH_XIANYU_GATEWAY_TOKEN: ${AUTOFISH_XIANYU_GATEWAY_TOKEN:-}
+      AUTOFISH_XIANYU_CLI_COMMAND: ${AUTOFISH_XIANYU_CLI_COMMAND:-}
+      AUTOFISH_XIANYU_COOKIE_PATH: ${AUTOFISH_XIANYU_COOKIE_PATH:-/run/autofish-credentials/goofish-cookies.json}
+      AUTOFISH_XIANYU_CLI_TIMEOUT_SECONDS: ${AUTOFISH_XIANYU_CLI_TIMEOUT_SECONDS:-60}
+      AUTOFISH_XIANYU_TOP_APP_KEY: ${AUTOFISH_XIANYU_TOP_APP_KEY:-}
+      AUTOFISH_XIANYU_TOP_APP_SECRET_FILE: ${AUTOFISH_XIANYU_TOP_APP_SECRET_FILE:-/run/autofish-credentials/xianyu-top-app-secret}
+      AUTOFISH_XIANYU_TOP_SESSION_FILE: ${AUTOFISH_XIANYU_TOP_SESSION_FILE:-/run/autofish-credentials/xianyu-top-session}
+      AUTOFISH_XIANYU_TOP_ENDPOINT: ${AUTOFISH_XIANYU_TOP_ENDPOINT:-https://eco.taobao.com/router/rest}
+      AUTOFISH_XIANYU_WEBHOOK_TOKEN_FILE: ${AUTOFISH_XIANYU_WEBHOOK_TOKEN_FILE:-/run/autofish-credentials/xianyu-webhook-token}
+      AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE: ${AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE:-/run/autofish-credentials/xianyu-browser-bridge-token}
+      AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED: ${AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED:-false}
+      AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED: ${AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED:-false}
+      AUTOFISH_AUTOMATION_SCHEDULER_ENABLED: ${AUTOFISH_AUTOMATION_SCHEDULER_ENABLED:-false}
+      AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS:-120}
+      AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS:-180}
+      AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS:-900}
+      AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS:-300}
+      AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE: ${AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE:-50}
+      AUTOFISH_ASSET_ROOT: ${AUTOFISH_ASSET_ROOT:-/app/assets}
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    volumes:
+      - ./logs:/app/logs
+      - ./assets:/app/assets
+      - ./credentials:/run/autofish-credentials:ro
+      - ./adapter-runtime:/opt/autofish-adapters:ro
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping --destination \"celery@$${HOSTNAME}\" --timeout 5 | grep -q pong"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 1m
+    networks: [autofish-internal, autofish-market]
+    logging: *default-logging
+
+  scheduler:
+    image: autofish-backend:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    init: true
+    cpus: 0.5
+    mem_limit: 512m
+    pids_limit: 120
+    environment:
+      AUTOFISH_ENVIRONMENT: production
+      AUTOFISH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-autofish}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-autofish}
+      AUTOFISH_REDIS_URL: redis://redis:6379/0
+      AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE: ${AUTOFISH_XIANYU_BROWSER_BRIDGE_TOKEN_FILE:-/run/autofish-credentials/xianyu-browser-bridge-token}
+      AUTOFISH_ADAPTERS_ENABLED: ${AUTOFISH_ADAPTERS_ENABLED:-false}
+      AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED: ${AUTOFISH_XIANYU_BROWSER_PUBLISH_ENABLED:-false}
+      AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED: ${AUTOFISH_XIANYU_BROWSER_CUSTOMER_SERVICE_ENABLED:-false}
+      AUTOFISH_AUTOMATION_SCHEDULER_ENABLED: ${AUTOFISH_AUTOMATION_SCHEDULER_ENABLED:-false}
+      AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_MESSAGE_INTERVAL_SECONDS:-120}
+      AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_ORDER_INTERVAL_SECONDS:-180}
+      AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_SUPPLIER_INTERVAL_SECONDS:-900}
+      AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS: ${AUTOFISH_AUTOMATION_PUBLISH_INTERVAL_SECONDS:-300}
+      AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE: ${AUTOFISH_AUTOMATION_SCHEDULER_BATCH_SIZE:-50}
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--scheduler=app.beat:HeartbeatScheduler", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    volumes:
+      - ./credentials:/run/autofish-credentials:ro
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp -type f -name 'autofish-beat-heartbeat' -mmin -5 -print -quit | grep -q ."]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+    networks: [autofish-internal]
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    init: true
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 220
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_APP_NAME: AutoFish
+    ports:
+      - "18180:3000"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [autofish-internal]
+    logging: *default-logging
+
+networks:
+  autofish-market:
+    driver: bridge
+  autofish-internal:
+    driver: bridge

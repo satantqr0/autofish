@@ -1,0 +1,7 @@
+node_modules
+.next
+tsconfig.tsbuildinfo
+AGENTS.md
+CLAUDE.md
+.DS_Store
+**/._*

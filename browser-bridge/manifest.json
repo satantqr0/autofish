@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "AutoFish 闲鱼工作台桥接",
+  "version": "0.6.0",
+  "description": "AutoFish 本地执行代理：复用已登录会话，受控完成经营日报、客服会话、AI 回复、精品图和商品发布。",
+  "permissions": ["alarms", "debugger", "scripting", "storage", "tabs"],
+  "host_permissions": [
+    "https://seller.goofish.com/*",
+    "https://www.goofish.com/*",
+    "http://192.168.199.180/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://seller.goofish.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AutoFish 闲鱼工作台桥接"
+  },
+  "options_page": "options.html"
+}
