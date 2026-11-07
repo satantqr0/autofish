@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 880" role="img" aria-labelledby="title description">
+  <title id="title">AutoFish Docker 快速安装</title>
+  <desc id="description">获取源码，配置数据库密码和管理员凭据，启动 Docker Compose，再检查服务并登录管理后台。</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#26374e" stroke-width="0.6"/>
+    </pattern>
+    <marker id="arrow" markerWidth="11" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0 0L10 4L0 8Z" fill="#8095b2"/>
+    </marker>
+    <style>
+      text {font-family:"JetBrains Mono","Noto Sans SC","PingFang SC","STHeiti","Hiragino Sans GB",sans-serif;}
+      .label {font-size:18px;font-weight:600;letter-spacing:2px;}
+      .heading {font-size:25px;font-weight:700;fill:#f8fafc;}
+      .note {font-size:20px;fill:#b9c9de;}
+      .code {font-family:"SF Mono",Menlo,Consolas,monospace;font-size:19px;fill:#e3efff;}
+      .number {font-family:"SF Mono",Menlo,Consolas,monospace;font-size:22px;font-weight:700;fill:#f8fafc;}
+    </style>
+  </defs>
+  <rect width="900" height="880" rx="24" fill="#0f172a"/>
+  <rect width="900" height="880" rx="24" fill="url(#grid)" opacity=".65"/>
+  <text x="40" y="52" class="label" fill="#67e8f9">AUTOFISH  /  QUICK START</text>
+  <text x="40" y="108" font-size="40" font-weight="700" fill="#f8fafc">Docker Compose 快速安装</text>
+
+  <g stroke="#8095b2" stroke-width="2.5" marker-end="url(#arrow)">
+    <path d="M450 276V315"/>
+    <path d="M450 444V483"/>
+    <path d="M450 612V651"/>
+  </g>
+
+  <g>
+    <rect x="40" y="146" width="820" height="120" rx="15" fill="#142743" stroke="#60a5fa" stroke-width="1.6"/>
+    <rect x="63" y="166" width="51" height="43" rx="10" fill="#254677"/>
+    <text x="88.5" y="195" class="number" text-anchor="middle">01</text>
+    <text x="137" y="181" class="heading">获取源码</text>
+    <text x="137" y="215" class="code">git clone https://github.com/satantqr0/autofish.git</text>
+    <text x="137" y="247" class="note">下载后进入 autofish 目录</text>
+  </g>
+  <g>
+    <rect x="40" y="314" width="820" height="120" rx="15" fill="#112e3b" stroke="#22d3ee" stroke-width="1.6"/>
+    <rect x="63" y="334" width="51" height="43" rx="10" fill="#195263"/>
+    <text x="88.5" y="363" class="number" text-anchor="middle">02</text>
+    <text x="137" y="349" class="heading">配置环境文件</text>
+    <text x="137" y="383" class="code">cp -n .env.example .env</text>
+    <text x="137" y="415" class="note">修改数据库密码、JWT 密钥和管理员密码</text>
+  </g>
+  <g>
+    <rect x="40" y="482" width="820" height="120" rx="15" fill="#102e2c" stroke="#34d399" stroke-width="1.6"/>
+    <rect x="63" y="502" width="51" height="43" rx="10" fill="#185243"/>
+    <text x="88.5" y="531" class="number" text-anchor="middle">03</text>
+    <text x="137" y="517" class="heading">启动服务</text>
+    <text x="137" y="551" class="code">docker compose up --build -d</text>
+    <text x="137" y="583" class="note">按教程先准备挂载目录并检查配置</text>
+  </g>
+  <g>
+    <rect x="40" y="650" width="820" height="120" rx="15" fill="#142743" stroke="#60a5fa" stroke-width="1.6"/>
+    <rect x="63" y="670" width="51" height="43" rx="10" fill="#254677"/>
+    <text x="88.5" y="699" class="number" text-anchor="middle">04</text>
+    <text x="137" y="685" class="heading">检查并登录</text>
+    <text x="137" y="719" class="code">docker compose ps</text>
+    <text x="137" y="751" class="note">访问部署主机的 18180 端口，用自己的管理员凭据登录</text>
+  </g>
+  <path d="M40 804H860" stroke="#364860"/>
+  <text x="40" y="842" class="note">首次启动保持外部写入关闭。网页任务需要另行配置 Chrome 扩展。</text>
+</svg>

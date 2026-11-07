@@ -6,6 +6,75 @@
 
 AutoFish 是客户自有设备、自有账号、自有数据的单租户闲鱼运营中台。当前 `0.9.0` 已完成商品、定价、评分、1688 选品事实库、八大 ClawHub 能力台、闲鱼事实库、大模型加密设置入口、自主上架流水线、模型故障回退、运行就绪检查、无需 Codex 参与正常链路的本地浏览器发布执行器，以及商业交付准备度与付费试点证据控制台。生产默认保持硬开关保护；只有来源、文案、精品图、策略、限额与本机执行器全部通过门禁，商品才会进入外部发布。
 
+[界面预览](#界面预览) · [快速安装](#快速安装) · [铁威马 NAS 部署](docs/DEPLOYMENT.md)
+
+## 界面预览
+
+下图为设计概念图。界面和数字用于展示布局，不代表真实经营数据或已启用的自动化功能。
+
+![AutoFish 经营总览设计概念图](docs/ui-concepts/autofish-simple-dashboard-desktop.png)
+
+<details>
+<summary>查看商品中心设计概念图</summary>
+
+![AutoFish 商品中心设计概念图：商品列表、成本明细和评分](docs/design/product-center-concept.png)
+
+</details>
+
+## 快速安装
+
+以下步骤适用于全新部署。准备 Git、Docker Engine 与 Compose 插件，确保部署主机可访问镜像和依赖仓库，且 `18180`、`18181` 端口可用。已有部署请按 [NAS 部署与运维](docs/DEPLOYMENT.md#更新) 先备份再更新。
+
+[![安装流程：获取源码、配置环境文件、启动服务、检查并登录](diagram/docker-quickstart/install-flow@2x.png)](diagram/docker-quickstart/install-flow.svg)
+
+### 1 获取源码
+
+```bash
+git clone https://github.com/satantqr0/autofish.git
+cd autofish
+```
+
+### 2 配置环境文件
+
+```bash
+(umask 077; cp -n .env.example .env)
+chmod 600 .env
+```
+
+用文本编辑器打开 `.env`，至少替换以下占位值：
+
+| 配置项 | 填写方式 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | 使用独立的 URL 安全随机值，可用 `openssl rand -hex 32` 生成 |
+| `JWT_SECRET` | 使用另一份至少 32 字符的随机密钥 |
+| `AUTOFISH_ADMIN_PASSWORD` | 至少 12 字符，包含大写、小写、数字、符号中的至少三类 |
+| `AUTOFISH_CORS_ORIGINS` | 本机访问用 `http://localhost:18180`；从另一台电脑访问时，加入实际 NAS 的前端地址，多个地址以逗号分隔 |
+
+用 `AUTOFISH_ADMIN_USERNAME` 和上面设置的管理员密码登录。首次启动保留模板中关闭的外部写入开关，无需填写闲鱼或模型密钥即可进入后台。
+
+### 3 准备目录并启动
+
+在部署主机的项目目录执行。后端以 UID/GID `10001:10001` 运行，下方命令为首次安装的图片与日志目录设置写入权限。
+
+```bash
+mkdir -p credentials adapter-runtime backups assets logs
+docker run --rm -v "$PWD/assets:/assets" -v "$PWD/logs:/logs" postgres:16-alpine \
+  sh -c 'chown 10001:10001 /assets /logs && chmod 700 /assets /logs'
+docker compose config --quiet
+docker compose up --build -d
+```
+
+### 4 检查并登录
+
+```bash
+docker compose ps
+./scripts/healthcheck.sh
+```
+
+首次构建与数据库迁移完成后，在部署主机打开 `http://localhost:18180`。从另一台电脑访问时，将 `localhost` 换成部署主机的局域网地址。后端 `18181` 端口的 `/health` 用于检查进程，`/ready` 用于检查数据库与 Redis 是否就绪。
+
+需要读取真实闲鱼数据或使用模型时，再按 [Chrome 桥接说明](browser-bridge/README.md) 和 [大模型设置](docs/AI_MODEL_SETTINGS.md) 分别接入。生产模式默认关闭 `/docs` 和 `/openapi.json`。
+
 ## 已实现
 
 - FastAPI + PostgreSQL + Redis + Next.js 的 Docker Compose 环境
@@ -38,20 +107,7 @@ AutoFish 是客户自有设备、自有账号、自有数据的单租户闲鱼�
 
 未配置经授权的凭证时，系统以保护模式运行并显示明确的“待授权”状态。当前版本不包含验证码破解、设备伪造、反检测、风控绕过、自动支付、虚假交易、虚假物流或评价操纵。采购/支付、退款/投诉和平台介入始终保留人工门禁。商业交付固定采用客户自有单租户模式，不托管第三方登录态、不做多账号群控，也不承诺经营收益。
 
-## Docker 启动
-
-```bash
-cp .env.example .env
-# 修改 .env 中的全部密码与 JWT_SECRET
-docker compose up --build -d
-```
-
-访问：
-
-- 管理后台：`http://localhost:18180`
-- 健康检查：`http://localhost:18181/health`
-
-Compose 默认使用生产环境，因此 OpenAPI 文档端点关闭；只在显式的开发环境中使用 `/docs`。
+## 开发与维护
 
 停止：
 
